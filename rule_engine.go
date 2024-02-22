@@ -1,7 +1,7 @@
 package rule_evaluator
 
-type Action[T any] struct {
-	Fn          func(results map[string]interface{}, data T) error
+type Action struct {
+	Fn          func(results map[string]interface{}) error
 	Description string
 }
 
@@ -12,7 +12,7 @@ type ActionExplanation struct {
 
 type Rule[T any] struct {
 	Conditions Condition[T]
-	Action     Action[T]
+	Action     Action
 }
 
 type RuleEngine[T any] struct {
@@ -60,10 +60,10 @@ func (r *RuleEngine[T]) AllOf(conditions ...Condition[T]) *ANDCondition[T] {
 	}
 }
 
-func (c *RuleEngine[T]) DefineRule(condition Condition[T], actionFn func(results map[string]interface{}, data T) error, actionDescription string) Rule[T] {
+func (c *RuleEngine[T]) DefineRule(condition Condition[T], actionFn func(results map[string]interface{}) error, actionDescription string) Rule[T] {
 	return Rule[T]{
 		Conditions: condition,
-		Action: Action[T]{
+		Action: Action{
 			Fn:          actionFn,
 			Description: actionDescription,
 		},
@@ -86,7 +86,7 @@ func (r *RuleEngine[T]) FireRules(data T, initializer ResultsInitializerFunc) (m
 		ruleResult := ruleItem.Conditions.Evaluate(data)
 
 		if ruleResult {
-			err := ruleItem.Action.Fn(r.results, data)
+			err := ruleItem.Action.Fn(r.results)
 			if err != nil {
 				return nil, err
 			}
