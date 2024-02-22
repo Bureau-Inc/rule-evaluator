@@ -5,109 +5,13 @@ import (
 	"strings"
 )
 
-type Condition interface {
-	Evaluate() bool
+type Condition[T any] interface {
+	Evaluate(data T) bool
 	GetDescription() string
 }
 
-type SimpleCondition struct {
-	Fn          func() bool
-	Description string
-}
-
-type ORCondition struct {
-	Conditions       []Condition
-	WinningCondition Condition // for generating runtime explanation
-}
-
-type ANDCondition struct {
-	Conditions      []Condition
-	LosingCondition Condition
-}
-
-func (s *SimpleCondition) Evaluate() bool {
-	return s.Fn()
-}
-
-func (s *SimpleCondition) GetDescription() string {
-	return s.Description
-}
-
-func (c *ORCondition) Evaluate() bool {
-	for _, cond := range c.Conditions {
-		result := cond.Evaluate()
-		if result {
-			c.WinningCondition = cond
-			return true
-		}
-	}
-	return false
-
-	//else if c.Type == "AND" {
-	//	var descriptions []string
-	//
-	//	for _, cond := range c.Conditions {
-	//		result := cond.Evaluate()
-	//		if !result {
-	//			c.Explanation = ""
-	//			return false
-	//		}
-	//		descriptions = append(descriptions, GetExplanationForCondition(cond))
-	//	}
-	//	c.Explanation = combineDescriptions(descriptions)
-	//	return true
-	//}
-
-}
-
-func (c *ANDCondition) Evaluate() bool {
-	for _, cond := range c.Conditions {
-		result := cond.Evaluate()
-		if !result {
-			return false
-		}
-	}
-	return true
-}
-
-// [AND: User is Subscribed; [AND: User is PM; User is rich]] -> action
-
-func (c *ANDCondition) GetDescription() string {
-	// Example: Combine descriptions of nested conditions if needed
-	return fmt.Sprintf("[AND: %s]", getDescription(c))
-}
-
-func (c *ORCondition) GetDescription() string {
-	return c.WinningCondition.GetDescription()
-}
-
-func (c *ORCondition) GetStaticDescription() string {
-
-	var descriptions []string
-	for _, nestedCond := range c.Conditions {
-		descriptions = append(descriptions, nestedCond.GetDescription())
-	}
-	return strings.Join(descriptions, "; ")
-}
-
-func getDescription(cond Condition) string {
-	if and, ok := cond.(*ANDCondition); ok {
-		var descriptions []string
-		for _, nestedCond := range and.Conditions {
-			descriptions = append(descriptions, nestedCond.GetDescription())
-		}
-		return strings.Join(descriptions, "; ")
-	} else if or, ok := cond.(*ORCondition); ok {
-		return or.GetDescription()
-	} else if simpl, ok := cond.(*SimpleCondition); ok {
-		return simpl.GetDescription()
-	}
-	fmt.Println("Error in description: This condition type is not supported ")
-	return ""
-}
-
-type Action struct {
-	Fn          func(results *Results) error
+type Action[T any] struct {
+	Fn          func(results *Results, data T) error
 	Description string
 }
 
@@ -121,14 +25,83 @@ type Results struct {
 	Explanations []ActionExplanation
 }
 
-type Rule struct {
-	Conditions Condition
-	Action     Action
+type Rule[T any] struct {
+	Conditions Condition[T]
+	Action     Action[T]
 }
 
-func CreateSimpleCondition(condition bool, description string, invert bool) *SimpleCondition {
-	return &SimpleCondition{
-		Fn: func() bool {
+type RuleEngine[T any] struct {
+	rules   []Rule[T]
+	results Results
+}
+
+type SimpleCondition[T any] struct {
+	Fn          func(data T) bool
+	Description string
+}
+
+type ORCondition[T any] struct {
+	Conditions       []Condition[T]
+	WinningCondition Condition[T] // for generating runtime explanation
+}
+
+type ANDCondition[T any] struct {
+	Conditions []Condition[T]
+}
+
+func (s *SimpleCondition[T]) Evaluate(data T) bool {
+	return s.Fn(data)
+}
+
+func (s *SimpleCondition[T]) GetDescription() string {
+	return s.Description
+}
+
+func (c *ORCondition[T]) Evaluate(data T) bool {
+	for _, cond := range c.Conditions {
+		result := cond.Evaluate(data)
+		if result {
+			c.WinningCondition = cond
+			return true
+		}
+	}
+	return false
+}
+
+func (c *ANDCondition[T]) Evaluate(data T) bool {
+	for _, cond := range c.Conditions {
+		result := cond.Evaluate(data)
+		if !result {
+			return false
+		}
+	}
+	return true
+}
+
+func (c *ANDCondition[T]) GetDescription() string {
+	var descriptions []string
+	for _, nestedCond := range c.Conditions {
+		descriptions = append(descriptions, nestedCond.GetDescription())
+	}
+	return fmt.Sprintf("[AND: %s]", strings.Join(descriptions, "; "))
+}
+
+func (c *ORCondition[T]) GetDescription() string {
+	return c.WinningCondition.GetDescription()
+}
+
+func (c *ORCondition[T]) GetStaticDescription() string {
+
+	var descriptions []string
+	for _, nestedCond := range c.Conditions {
+		descriptions = append(descriptions, nestedCond.GetDescription())
+	}
+	return strings.Join(descriptions, "; ")
+}
+
+func (r *RuleEngine[T]) CreateSimpleCondition(condition bool, description string, invert bool) *SimpleCondition[T] {
+	return &SimpleCondition[T]{
+		Fn: func(data T) bool {
 			if invert {
 				return !condition
 			}
@@ -138,52 +111,67 @@ func CreateSimpleCondition(condition bool, description string, invert bool) *Sim
 	}
 }
 
-func CustomFn(Fn func() bool, description string) *SimpleCondition {
-	return &SimpleCondition{
+func (r *RuleEngine[T]) CustomFn(Fn func(data T) bool, description string) *SimpleCondition[T] {
+	return &SimpleCondition[T]{
 		Fn:          Fn,
 		Description: description,
 	}
 }
 
-func Not(condition bool, description string) *SimpleCondition {
-	return CreateSimpleCondition(condition, description, true)
+func (r *RuleEngine[T]) Not(condition bool, description string) *SimpleCondition[T] {
+	return r.CreateSimpleCondition(condition, description, true)
 }
 
-func Is(condition bool, description string) *SimpleCondition {
-	return CreateSimpleCondition(condition, description, false)
+func (r *RuleEngine[T]) Is(condition bool, description string) *SimpleCondition[T] {
+	return r.CreateSimpleCondition(condition, description, false)
 }
 
-func AnyOf(conditions ...Condition) *ORCondition {
-	return &ORCondition{
+func (r *RuleEngine[T]) AnyOf(conditions ...Condition[T]) *ORCondition[T] {
+	return &ORCondition[T]{
 		Conditions: conditions,
 	}
 }
 
-func AllOf(conditions ...Condition) *ANDCondition {
-	return &ANDCondition{
+func (r *RuleEngine[T]) AllOf(conditions ...Condition[T]) *ANDCondition[T] {
+	return &ANDCondition[T]{
 		Conditions: conditions,
+	}
+}
+
+func (c *RuleEngine[T]) DefineRule(condition Condition[T], actionFn func(results *Results, data T) error, actionDescription string) Rule[T] {
+	return Rule[T]{
+		Conditions: condition,
+		Action: Action[T]{
+			Fn:          actionFn,
+			Description: actionDescription,
+		},
+	}
+}
+
+func (r *RuleEngine[T]) AddRules(rules ...Rule[T]) {
+	for _, rule := range rules {
+		r.rules = append(r.rules, rule)
 	}
 }
 
 type ResultsInitializerFunc func() map[string]interface{}
 
-func FireRules(rules []Rule, initializer ResultsInitializerFunc) (*Results, error) {
-	results := &Results{Data: initializer(), Explanations: make([]ActionExplanation, 0)}
+func (r *RuleEngine[T]) FireRules(data T, initializer ResultsInitializerFunc) (*Results, error) {
+	r.results = Results{Data: initializer(), Explanations: make([]ActionExplanation, 0)}
 
-	for _, ruleItem := range rules {
-		ruleResult := ruleItem.Conditions.Evaluate()
+	for _, ruleItem := range r.rules {
+		ruleResult := ruleItem.Conditions.Evaluate(data)
 
 		if ruleResult {
-			err := ruleItem.Action.Fn(results)
+			err := ruleItem.Action.Fn(&r.results, data)
 			if err != nil {
 				return nil, err
 			}
-			results.Explanations = append(results.Explanations, ActionExplanation{
+			r.results.Explanations = append(r.results.Explanations, ActionExplanation{
 				ActionDescription:     ruleItem.Action.Description,
 				ConditionExplanations: ruleItem.Conditions.GetDescription(),
 			})
 		}
 	}
-
-	return results, nil
+	return &r.results, nil
 }
