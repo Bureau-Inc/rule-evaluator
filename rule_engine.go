@@ -1,7 +1,7 @@
 package rule_evaluator
 
 type Action[T any] struct {
-	Fn          func(results *Results, data T) error
+	Fn          func(results map[string]interface{}, data T) error
 	Description string
 }
 
@@ -10,19 +10,15 @@ type ActionExplanation struct {
 	ConditionExplanations string
 }
 
-type Results struct {
-	Data         map[string]interface{}
-	Explanations []ActionExplanation
-}
-
 type Rule[T any] struct {
 	Conditions Condition[T]
 	Action     Action[T]
 }
 
 type RuleEngine[T any] struct {
-	rules   []Rule[T]
-	results Results
+	rules        []Rule[T]
+	Explanations []ActionExplanation
+	results      map[string]interface{}
 }
 
 func (r *RuleEngine[T]) CreateSimpleCondition(condition bool, description string, invert bool) *SimpleCondition[T] {
@@ -64,7 +60,7 @@ func (r *RuleEngine[T]) AllOf(conditions ...Condition[T]) *ANDCondition[T] {
 	}
 }
 
-func (c *RuleEngine[T]) DefineRule(condition Condition[T], actionFn func(results *Results, data T) error, actionDescription string) Rule[T] {
+func (c *RuleEngine[T]) DefineRule(condition Condition[T], actionFn func(results map[string]interface{}, data T) error, actionDescription string) Rule[T] {
 	return Rule[T]{
 		Conditions: condition,
 		Action: Action[T]{
@@ -82,22 +78,23 @@ func (r *RuleEngine[T]) AddRules(rules ...Rule[T]) {
 
 type ResultsInitializerFunc func() map[string]interface{}
 
-func (r *RuleEngine[T]) FireRules(data T, initializer ResultsInitializerFunc) (*Results, error) {
-	r.results = Results{Data: initializer(), Explanations: make([]ActionExplanation, 0)}
+func (r *RuleEngine[T]) FireRules(data T, initializer ResultsInitializerFunc) (map[string]interface{}, error) {
+	r.results = initializer()
+	r.Explanations = make([]ActionExplanation, 0)
 
 	for _, ruleItem := range r.rules {
 		ruleResult := ruleItem.Conditions.Evaluate(data)
 
 		if ruleResult {
-			err := ruleItem.Action.Fn(&r.results, data)
+			err := ruleItem.Action.Fn(r.results, data)
 			if err != nil {
 				return nil, err
 			}
-			r.results.Explanations = append(r.results.Explanations, ActionExplanation{
+			r.Explanations = append(r.Explanations, ActionExplanation{
 				ActionDescription:     ruleItem.Action.Description,
 				ConditionExplanations: ruleItem.Conditions.GetDescription(),
 			})
 		}
 	}
-	return &r.results, nil
+	return r.results, nil
 }
