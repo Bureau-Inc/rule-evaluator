@@ -15,72 +15,101 @@ type SimpleCondition struct {
 	Description string
 }
 
-type CompositeCondition struct {
-	Type       string
-	Conditions []Condition
+type ORCondition struct {
+	Conditions       []Condition
+	WinningCondition Condition // for generating runtime explanation
 }
 
-func (s SimpleCondition) Evaluate() bool {
+type ANDCondition struct {
+	Conditions      []Condition
+	LosingCondition Condition
+}
+
+func (s *SimpleCondition) Evaluate() bool {
 	return s.Fn()
 }
 
-func (s SimpleCondition) GetDescription() string {
+func (s *SimpleCondition) GetDescription() string {
 	return s.Description
 }
 
-func (c CompositeCondition) Evaluate() bool {
-	if c.Type == "OR" {
-		for _, cond := range c.Conditions {
-			result := cond.Evaluate()
-			if result {
-				return true
-			}
+func (c *ORCondition) Evaluate() bool {
+	for _, cond := range c.Conditions {
+		result := cond.Evaluate()
+		if result {
+			c.WinningCondition = cond
+			return true
 		}
-		return false
-	} else if c.Type == "AND" {
-		var descriptions []string
-
-		for _, cond := range c.Conditions {
-			result := cond.Evaluate()
-
-			if !result {
-				return false
-			}
-			descriptions = append(descriptions, c.GetDescription())
-		}
-
-		return true
 	}
-	fmt.Println("Error: This condition type is not supported: ", c.Type)
 	return false
+
+	//else if c.Type == "AND" {
+	//	var descriptions []string
+	//
+	//	for _, cond := range c.Conditions {
+	//		result := cond.Evaluate()
+	//		if !result {
+	//			c.Explanation = ""
+	//			return false
+	//		}
+	//		descriptions = append(descriptions, GetExplanationForCondition(cond))
+	//	}
+	//	c.Explanation = combineDescriptions(descriptions)
+	//	return true
+	//}
+
 }
 
-func (c CompositeCondition) GetDescription() string {
-	// Example: Combine descriptions of nested conditions if needed
-	return fmt.Sprintf("[%s: %s]", c.Type, combineDescriptions(getDescriptions(c)))
-}
-
-// Helper for getting descriptions from a nested condition
-func getDescriptions(cond Condition) []string {
-	if comp, ok := cond.(CompositeCondition); ok {
-		var descriptions []string
-		for _, nestedCond := range comp.Conditions {
-			descriptions = append(descriptions, nestedCond.GetDescription())
+func (c *ANDCondition) Evaluate() bool {
+	for _, cond := range c.Conditions {
+		result := cond.Evaluate()
+		if !result {
+			return false
 		}
-		return descriptions
-	} else if simpl, ok := cond.(SimpleCondition); ok {
-		// If it's a base condition (likely a SimpleCondition)
-		return []string{simpl.GetDescription()}
 	}
-	fmt.Println("Error in description: This condition type is not supported ")
-	return []string{}
+	return true
 }
 
-func combineDescriptions(descriptions []string) string {
+// [AND: User is Subscribed; [AND: User is PM; User is rich]] -> action
+
+func (c *ANDCondition) GetDescription() string {
+	// Example: Combine descriptions of nested conditions if needed
+	return fmt.Sprintf("[AND: %s]", getDescription(c))
+}
+
+func (c *ORCondition) GetDescription() string {
+	return c.WinningCondition.GetDescription()
+}
+
+func (c *ORCondition) GetStaticDescription() string {
+
+	var descriptions []string
+	for _, nestedCond := range c.Conditions {
+		descriptions = append(descriptions, nestedCond.GetDescription())
+	}
 	return strings.Join(descriptions, "; ")
 }
 
-type ActionFunc func(results *Results) (string, error)
+func getDescription(cond Condition) string {
+	if and, ok := cond.(*ANDCondition); ok {
+		var descriptions []string
+		for _, nestedCond := range and.Conditions {
+			descriptions = append(descriptions, nestedCond.GetDescription())
+		}
+		return strings.Join(descriptions, "; ")
+	} else if or, ok := cond.(*ORCondition); ok {
+		return or.GetDescription()
+	} else if simpl, ok := cond.(*SimpleCondition); ok {
+		return simpl.GetDescription()
+	}
+	fmt.Println("Error in description: This condition type is not supported ")
+	return ""
+}
+
+type Action struct {
+	Fn          func(results *Results) error
+	Description string
+}
 
 type ActionExplanation struct {
 	ActionDescription     string
@@ -94,11 +123,11 @@ type Results struct {
 
 type Rule struct {
 	Conditions Condition
-	Action     ActionFunc
+	Action     Action
 }
 
-func CreateSimpleCondition(condition bool, description string, invert bool) SimpleCondition {
-	return SimpleCondition{
+func CreateSimpleCondition(condition bool, description string, invert bool) *SimpleCondition {
+	return &SimpleCondition{
 		Fn: func() bool {
 			if invert {
 				return !condition
@@ -109,31 +138,29 @@ func CreateSimpleCondition(condition bool, description string, invert bool) Simp
 	}
 }
 
-func CustomFn(Fn func() bool, description string) SimpleCondition {
-	return SimpleCondition{
+func CustomFn(Fn func() bool, description string) *SimpleCondition {
+	return &SimpleCondition{
 		Fn:          Fn,
 		Description: description,
 	}
 }
 
-func Not(condition bool, description string) SimpleCondition {
+func Not(condition bool, description string) *SimpleCondition {
 	return CreateSimpleCondition(condition, description, true)
 }
 
-func Is(condition bool, description string) SimpleCondition {
+func Is(condition bool, description string) *SimpleCondition {
 	return CreateSimpleCondition(condition, description, false)
 }
 
-func AnyOf(conditions ...Condition) CompositeCondition {
-	return CompositeCondition{
-		Type:       "OR",
+func AnyOf(conditions ...Condition) *ORCondition {
+	return &ORCondition{
 		Conditions: conditions,
 	}
 }
 
-func AllOf(conditions ...Condition) CompositeCondition {
-	return CompositeCondition{
-		Type:       "AND",
+func AllOf(conditions ...Condition) *ANDCondition {
+	return &ANDCondition{
 		Conditions: conditions,
 	}
 }
@@ -147,12 +174,12 @@ func FireRules(rules []Rule, initializer ResultsInitializerFunc) (*Results, erro
 		ruleResult := ruleItem.Conditions.Evaluate()
 
 		if ruleResult {
-			desc, err := ruleItem.Action(results)
+			err := ruleItem.Action.Fn(results)
 			if err != nil {
 				return nil, err
 			}
 			results.Explanations = append(results.Explanations, ActionExplanation{
-				ActionDescription:     desc,
+				ActionDescription:     ruleItem.Action.Description,
 				ConditionExplanations: ruleItem.Conditions.GetDescription(),
 			})
 		}
