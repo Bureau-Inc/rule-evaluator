@@ -33,33 +33,6 @@ func (r *RuleEngine[T]) CreateSimpleCondition(condition bool, description string
 	}
 }
 
-func (r *RuleEngine[T]) CustomFn(Fn func(data T) bool, description string) *SimpleCondition[T] {
-	return &SimpleCondition[T]{
-		Fn:          Fn,
-		Description: description,
-	}
-}
-
-func (r *RuleEngine[T]) Not(condition bool, description string) *SimpleCondition[T] {
-	return r.CreateSimpleCondition(condition, description, true)
-}
-
-func (r *RuleEngine[T]) Is(condition bool, description string) *SimpleCondition[T] {
-	return r.CreateSimpleCondition(condition, description, false)
-}
-
-func (r *RuleEngine[T]) AnyOf(conditions ...Condition[T]) *ORCondition[T] {
-	return &ORCondition[T]{
-		Conditions: conditions,
-	}
-}
-
-func (r *RuleEngine[T]) AllOf(conditions ...Condition[T]) *ANDCondition[T] {
-	return &ANDCondition[T]{
-		Conditions: conditions,
-	}
-}
-
 func (c *RuleEngine[T]) DefineRule(condition Condition[T], actionFn func(results map[string]interface{}) error, actionDescription string) Rule[T] {
 	return Rule[T]{
 		Conditions: condition,
