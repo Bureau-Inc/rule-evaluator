@@ -5,34 +5,34 @@ import (
 	"strings"
 )
 
-type Condition[T any] interface {
-	Evaluate(data T) bool
+type Condition interface {
+	Evaluate(data interface{}) bool
 	GetDescription() string
 }
 
-type SimpleCondition[T any] struct {
-	Fn          func(data T) bool
+type SimpleCondition struct {
+	Fn          func(data interface{}) bool
 	Description string
 }
 
-type ORCondition[T any] struct {
-	Conditions       []Condition[T]
-	WinningCondition Condition[T] // for generating runtime explanation
+type ORCondition struct {
+	Conditions       []Condition
+	WinningCondition Condition // for generating runtime explanation
 }
 
-type ANDCondition[T any] struct {
-	Conditions []Condition[T]
+type ANDCondition struct {
+	Conditions []Condition
 }
 
-func (s *SimpleCondition[T]) Evaluate(data T) bool {
+func (s *SimpleCondition) Evaluate(data interface{}) bool {
 	return s.Fn(data)
 }
 
-func (s *SimpleCondition[T]) GetDescription() string {
+func (s *SimpleCondition) GetDescription() string {
 	return s.Description
 }
 
-func (c *ORCondition[T]) Evaluate(data T) bool {
+func (c *ORCondition) Evaluate(data interface{}) bool {
 	for _, cond := range c.Conditions {
 		result := cond.Evaluate(data)
 		if result {
@@ -43,11 +43,11 @@ func (c *ORCondition[T]) Evaluate(data T) bool {
 	return false
 }
 
-func (c *ORCondition[T]) GetDescription() string {
+func (c *ORCondition) GetDescription() string {
 	return c.WinningCondition.GetDescription()
 }
 
-func (c *ORCondition[T]) GetStaticDescription() string {
+func (c *ORCondition) GetStaticDescription() string {
 
 	var descriptions []string
 	for _, nestedCond := range c.Conditions {
@@ -56,7 +56,7 @@ func (c *ORCondition[T]) GetStaticDescription() string {
 	return strings.Join(descriptions, "; ")
 }
 
-func (c *ANDCondition[T]) Evaluate(data T) bool {
+func (c *ANDCondition) Evaluate(data interface{}) bool {
 	for _, cond := range c.Conditions {
 		result := cond.Evaluate(data)
 		if !result {
@@ -66,7 +66,7 @@ func (c *ANDCondition[T]) Evaluate(data T) bool {
 	return true
 }
 
-func (c *ANDCondition[T]) GetDescription() string {
+func (c *ANDCondition) GetDescription() string {
 	var descriptions []string
 	for _, nestedCond := range c.Conditions {
 		descriptions = append(descriptions, nestedCond.GetDescription())

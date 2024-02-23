@@ -5,8 +5,8 @@ import (
 	"reflect"
 )
 
-func (r *RuleEngine[T]) CustomFn(Fn func(data T) bool, description string) *SimpleCondition[T] {
-	return &SimpleCondition[T]{
+func (r *RuleEngine) CustomFn(Fn func(data interface{}) bool, description string) *SimpleCondition {
+	return &SimpleCondition{
 		Fn:          Fn,
 		Description: description,
 	}
@@ -15,24 +15,24 @@ func (r *RuleEngine[T]) CustomFn(Fn func(data T) bool, description string) *Simp
 // helpers to help you create simple conditions without defining functions every time, just give condition and description
 // In these, you cannot use data argument passed to the function. You have to use closure in your caller function
 
-func (r *RuleEngine[T]) Not(condition bool, description string) *SimpleCondition[T] {
+func (r *RuleEngine) Not(condition bool, description string) *SimpleCondition {
 	return r.CreateSimpleCondition(condition, description, true)
 }
 
-func (r *RuleEngine[T]) Is(condition bool, description string) *SimpleCondition[T] {
+func (r *RuleEngine) Is(condition bool, description string) *SimpleCondition {
 	return r.CreateSimpleCondition(condition, description, false)
 }
 
 // helpers for AND and OR conditions
 
-func (r *RuleEngine[T]) OR(conditions ...Condition[T]) *ORCondition[T] {
-	return &ORCondition[T]{
+func (r *RuleEngine) OR(conditions ...Condition) *ORCondition {
+	return &ORCondition{
 		Conditions: conditions,
 	}
 }
 
-func (r *RuleEngine[T]) AND(conditions ...Condition[T]) *ANDCondition[T] {
-	return &ANDCondition[T]{
+func (r *RuleEngine) AND(conditions ...Condition) *ANDCondition {
+	return &ANDCondition{
 		Conditions: conditions,
 	}
 }
@@ -40,114 +40,143 @@ func (r *RuleEngine[T]) AND(conditions ...Condition[T]) *ANDCondition[T] {
 // the following functions create the condition and description for you, given the field name in struct.
 // but it can lead to errors if field value is not of expected type, which will only be known at runtime.
 
-func (r *RuleEngine[T]) GreaterThan(field string, operand float64) *SimpleCondition[T] {
-	return r.CustomFn(func(data T) bool {
-		fieldValue := reflect.ValueOf(data).FieldByName(field)
-		switch fieldValue.Kind() {
-		case reflect.Int, reflect.Int32, reflect.Int64:
-			return fieldValue.Int() > int64(operand)
-		case reflect.Float32, reflect.Float64:
-			return fieldValue.Float() > operand
-		default:
-			panic(fmt.Sprintf("ERROR GreaterThan: unsupported type of field value for key %s", field))
+type ComparisonOperator string
+
+const (
+	GreaterThanOp          ComparisonOperator = ">"
+	LessThanOp             ComparisonOperator = "<"
+	GreaterThanOrEqualToOp ComparisonOperator = ">="
+	LessThanOrEqualToOp    ComparisonOperator = "<="
+	EqualToOp              ComparisonOperator = "=="
+	NotEqualToOp           ComparisonOperator = "!="
+)
+
+func compareOpNumber(val interface{}, operand float64, op ComparisonOperator) bool {
+	switch val.(type) {
+	case int, int32, int64:
+		intVal := int64(val.(int)) // Convert for consistency
+		switch op {
+		case GreaterThanOp:
+			return intVal > int64(operand)
+		case LessThanOp:
+			return intVal < int64(operand)
+		case GreaterThanOrEqualToOp:
+			return intVal >= int64(operand)
+		case LessThanOrEqualToOp:
+			return intVal <= int64(operand)
+		case EqualToOp:
+			return intVal == int64(operand)
+		case NotEqualToOp:
+			return intVal != int64(operand)
 		}
-	}, fmt.Sprintf("%s > %.2f", field, operand))
+	case float32, float64:
+		floatVal := val.(float64)
+		switch op {
+		case GreaterThanOp:
+			return floatVal > operand
+		case LessThanOp:
+			return floatVal < operand
+		case GreaterThanOrEqualToOp:
+			return floatVal >= operand
+		case LessThanOrEqualToOp:
+			return floatVal <= operand
+		case EqualToOp:
+			return floatVal == operand
+		case NotEqualToOp:
+			return floatVal != operand
+
+		}
+	default:
+		panic(fmt.Sprintf("ERROR: unsupported type for comparison: %T", val)) // Or handle with errors
+	}
+	return false // Should not reach here
 }
 
-func (r *RuleEngine[T]) GreaterThanEqualTo(field string, operand float64) *SimpleCondition[T] {
-	return r.CustomFn(func(data T) bool {
-		fieldValue := reflect.ValueOf(data).FieldByName(field)
-		switch fieldValue.Kind() {
-		case reflect.Int, reflect.Int32, reflect.Int64:
-			return fieldValue.Int() >= int64(operand)
-		case reflect.Float32, reflect.Float64:
-			return fieldValue.Float() >= operand
-		default:
-			panic(fmt.Sprintf("ERROR GreaterThanEqualTo: unsupported type of field value for key %s", field))
+func compareOpStr(val interface{}, operand string, op ComparisonOperator) bool {
+	switch val.(type) {
+	case string:
+		strVal := val.(string)
+		switch op {
+		case EqualToOp:
+			return strVal == operand
+		case NotEqualToOp:
+			return strVal != operand
 		}
-	}, fmt.Sprintf("%s >= %.2f", field, operand))
+	default:
+		panic(fmt.Sprintf("ERROR: unsupported type for comparison: %T", val))
+	}
+	return false
 }
 
-func (r *RuleEngine[T]) LessThan(field string, operand float64) *SimpleCondition[T] {
-	return r.CustomFn(func(data T) bool {
-		fieldValue := reflect.ValueOf(data).FieldByName(field)
-		switch fieldValue.Kind() {
-		case reflect.Int, reflect.Int32, reflect.Int64:
-			return fieldValue.Int() < int64(operand)
-		case reflect.Float32, reflect.Float64:
-			return fieldValue.Float() < operand
+func (r *RuleEngine) compareNumber(field string, operand float64, op ComparisonOperator) *SimpleCondition {
+	return r.CustomFn(func(data interface{}) bool {
+		switch typedData := data.(type) {
+		case map[string]interface{}:
+			if val, ok := typedData[field]; ok {
+				return compareOpNumber(val, operand, op)
+			} else {
+				panic(fmt.Sprintf("ERROR: field '%s' not found in map", field))
+			}
 		default:
-			panic(fmt.Sprintf("ERROR LessThan: unsupported type of field value for key %s", field))
+			fieldValue := reflect.ValueOf(data).FieldByName(field)
+			if fieldValue.IsValid() {
+				return compareOpNumber(fieldValue.Interface(), operand, op)
+			} else {
+				panic(fmt.Sprintf("ERROR: field '%s' not found in struct", field))
+			}
 		}
-	}, fmt.Sprintf("%s < %.2f", field, operand))
+	}, fmt.Sprintf("%s %s %.2f", field, op, operand)) // Generalized formatting
 }
 
-func (r *RuleEngine[T]) LessThanEqualTo(field string, operand float64) *SimpleCondition[T] {
-	return r.CustomFn(func(data T) bool {
-		fieldValue := reflect.ValueOf(data).FieldByName(field)
-		switch fieldValue.Kind() {
-		case reflect.Int, reflect.Int32, reflect.Int64:
-			return fieldValue.Int() <= int64(operand)
-		case reflect.Float32, reflect.Float64:
-			return fieldValue.Float() <= operand
+func (r *RuleEngine) compareString(field string, operand string, op ComparisonOperator) *SimpleCondition {
+	return r.CustomFn(func(data interface{}) bool {
+		switch typedData := data.(type) {
+		case map[string]interface{}:
+			if val, ok := typedData[field]; ok {
+				return compareOpStr(val, operand, op)
+			} else {
+				panic(fmt.Sprintf("ERROR: field '%s' not found in map", field))
+			}
 		default:
-			panic(fmt.Sprintf("ERROR LessThanEqualTo: unsupported type of field value for key %s", field))
+			fieldValue := reflect.ValueOf(data).FieldByName(field)
+			if fieldValue.IsValid() {
+				return compareOpStr(fieldValue.Interface(), operand, op)
+			} else {
+				panic(fmt.Sprintf("ERROR: field '%s' not found in struct", field))
+			}
 		}
-	}, fmt.Sprintf("%s <= %.2f", field, operand))
+	}, fmt.Sprintf("%s %s %s", field, op, operand)) // Generalized formatting
+
 }
 
-func (r *RuleEngine[T]) EqualToNum(field string, value float64) *SimpleCondition[T] {
-	return r.CustomFn(func(data T) bool {
-		fieldValue := reflect.ValueOf(data).FieldByName(field)
-
-		switch fieldValue.Kind() {
-		case reflect.Int, reflect.Int32, reflect.Int64:
-			return fieldValue.Int() == int64(value)
-		case reflect.Float32, reflect.Float64:
-			return fieldValue.Float() == value
-		default:
-			panic(fmt.Sprintf("ERROR EqualToNum: unsupported type of field value for key %s", field))
-		}
-	}, fmt.Sprintf("%s == %.2f", field, value))
+func (r *RuleEngine) GreaterThan(field string, value float64) *SimpleCondition {
+	return r.compareNumber(field, value, GreaterThanOp)
 }
 
-func (r *RuleEngine[T]) EqualToStr(field string, value string) *SimpleCondition[T] {
-	return r.CustomFn(func(data T) bool {
-		fieldValue := reflect.ValueOf(data).FieldByName(field)
-
-		switch fieldValue.Kind() {
-		case reflect.String:
-			return fieldValue.String() == value
-		default:
-			panic(fmt.Sprintf("ERROR EqualToStr: unsupported type of field value for key %s", field))
-		}
-	}, fmt.Sprintf("%s == %s", field, value))
+func (r *RuleEngine) GreaterThanEqualTo(field string, value float64) *SimpleCondition {
+	return r.compareNumber(field, value, GreaterThanOrEqualToOp)
 }
 
-func (r *RuleEngine[T]) NotEqualToNum(field string, value float64) *SimpleCondition[T] {
-	return r.CustomFn(func(data T) bool {
-		fieldValue := reflect.ValueOf(data).FieldByName(field)
-
-		switch fieldValue.Kind() {
-		case reflect.Int, reflect.Int32, reflect.Int64:
-			return fieldValue.Int() != int64(value)
-		case reflect.Float32, reflect.Float64:
-			return fieldValue.Float() != value
-		default:
-			panic(fmt.Sprintf("ERROR NotEqualToNum: unsupported type of field value for key %s", field))
-		}
-	}, fmt.Sprintf("%s != %.2f", field, value))
+func (r *RuleEngine) LessThan(field string, value float64) *SimpleCondition {
+	return r.compareNumber(field, value, LessThanOp)
 }
 
-func (r *RuleEngine[T]) NotEqualToStr(field string, value string) *SimpleCondition[T] {
-	return r.CustomFn(func(data T) bool {
-		fieldValue := reflect.ValueOf(data).FieldByName(field)
+func (r *RuleEngine) LessThanEqualTo(field string, value float64) *SimpleCondition {
+	return r.compareNumber(field, value, LessThanOrEqualToOp)
+}
 
-		switch fieldValue.Kind() {
-		case reflect.String:
-			return fieldValue.String() != value
-		default:
-			panic(fmt.Sprintf("ERROR NotEqualToStr: unsupported type of field value for key %s", field))
-		}
-	}, fmt.Sprintf("%s != %s", field, value))
+func (r *RuleEngine) EqualTo(field string, value float64) *SimpleCondition {
+	return r.compareNumber(field, value, EqualToOp)
+}
+
+func (r *RuleEngine) NotEqualTo(field string, value float64) *SimpleCondition {
+	return r.compareNumber(field, value, NotEqualToOp)
+}
+
+func (r *RuleEngine) EqualToStr(field string, value string) *SimpleCondition {
+	return r.compareString(field, value, EqualToOp)
+}
+
+func (r *RuleEngine) NotEqualToStr(field string, value string) *SimpleCondition {
+	return r.compareString(field, value, NotEqualToOp)
 }

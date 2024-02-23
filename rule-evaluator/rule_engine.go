@@ -10,20 +10,26 @@ type ActionExplanation struct {
 	ConditionExplanations string
 }
 
-type Rule[T any] struct {
-	Conditions Condition[T]
+type Rule struct {
+	Conditions Condition
 	Action     Action
 }
 
-type RuleEngine[T any] struct {
-	rules        []Rule[T]
+type RuleEngine struct {
+	rules        []Rule
 	Explanations []ActionExplanation
 	results      map[string]interface{}
 }
 
-func (r *RuleEngine[T]) CreateSimpleCondition(condition bool, description string, invert bool) *SimpleCondition[T] {
-	return &SimpleCondition[T]{
-		Fn: func(data T) bool {
+type RuleEngineError struct {
+	ErrorType string
+	Field     string
+	Message   string
+}
+
+func (r *RuleEngine) CreateSimpleCondition(condition bool, description string, invert bool) *SimpleCondition {
+	return &SimpleCondition{
+		Fn: func(data interface{}) bool {
 			if invert {
 				return !condition
 			}
@@ -33,14 +39,14 @@ func (r *RuleEngine[T]) CreateSimpleCondition(condition bool, description string
 	}
 }
 
-func (c *RuleEngine[T]) DefineRule(condition Condition[T], action Action) Rule[T] {
-	return Rule[T]{
+func (r *RuleEngine) DefineRule(condition Condition, action Action) Rule {
+	return Rule{
 		Conditions: condition,
 		Action:     action,
 	}
 }
 
-func (r *RuleEngine[T]) AddRules(rules ...Rule[T]) {
+func (r *RuleEngine) AddRules(rules ...Rule) {
 	for _, rule := range rules {
 		r.rules = append(r.rules, rule)
 	}
@@ -48,7 +54,7 @@ func (r *RuleEngine[T]) AddRules(rules ...Rule[T]) {
 
 type ResultsInitializerFunc func() map[string]interface{}
 
-func (r *RuleEngine[T]) FireRules(data T, initializer ResultsInitializerFunc) (map[string]interface{}, error) {
+func (r *RuleEngine) FireRules(data interface{}, initializer ResultsInitializerFunc) (map[string]interface{}, error) {
 	r.results = initializer()
 	r.Explanations = make([]ActionExplanation, 0)
 
