@@ -33,13 +33,10 @@ func (r *RuleEngine[T]) CreateSimpleCondition(condition bool, description string
 	}
 }
 
-func (c *RuleEngine[T]) DefineRule(condition Condition[T], actionFn func(results map[string]interface{}) error, actionDescription string) Rule[T] {
+func (c *RuleEngine[T]) DefineRule(condition Condition[T], action Action) Rule[T] {
 	return Rule[T]{
 		Conditions: condition,
-		Action: Action{
-			Fn:          actionFn,
-			Description: actionDescription,
-		},
+		Action:     action,
 	}
 }
 
