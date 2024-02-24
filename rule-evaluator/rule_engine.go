@@ -1,5 +1,12 @@
 package rule_evaluator
 
+import (
+	"fmt"
+	"github.com/Bureau-Inc/rule-evaluator/rule-evaluator/utils"
+	"strings"
+)
+
+type ActionFn func(results map[string]interface{}) error
 type Action struct {
 	Fn          func(results map[string]interface{}) error
 	Description string
@@ -39,10 +46,13 @@ func (r *RuleEngine) CreateSimpleCondition(condition bool, description string, i
 	}
 }
 
-func (r *RuleEngine) DefineRule(condition Condition, action Action) Rule {
+func (c *RuleEngine) DefineRule(condition Condition, actionFn func(results map[string]interface{}) error, actionDescription string) Rule {
 	return Rule{
 		Conditions: condition,
-		Action:     action,
+		Action: Action{
+			Fn:          actionFn,
+			Description: actionDescription,
+		},
 	}
 }
 
@@ -73,4 +83,13 @@ func (r *RuleEngine) FireRules(data interface{}, initializer ResultsInitializerF
 		}
 	}
 	return r.results, nil
+}
+
+func (r *RuleEngine) InspectLastSession() string {
+	var descriptions []string
+	for _, expl := range r.Explanations {
+		descriptions = append(descriptions,
+			fmt.Sprintf("%s \n Action-> %s\n", utils.FormatExplanation(expl.ConditionExplanations), expl.ActionDescription))
+	}
+	return strings.Join(descriptions, "\n")
 }

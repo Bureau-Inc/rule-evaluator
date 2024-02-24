@@ -49,6 +49,9 @@ const (
 	LessThanOrEqualToOp    ComparisonOperator = "<="
 	EqualToOp              ComparisonOperator = "=="
 	NotEqualToOp           ComparisonOperator = "!="
+	InOp                   ComparisonOperator = "in"
+	IsNilOp                ComparisonOperator = "== nil"
+	NotNilOp               ComparisonOperator = "!= nil"
 )
 
 func compareOpNumber(val interface{}, operand float64, op ComparisonOperator) bool {
@@ -92,6 +95,15 @@ func compareOpNumber(val interface{}, operand float64, op ComparisonOperator) bo
 	return false // Should not reach here
 }
 
+func sliceContainsStr(list []string, operand string) bool {
+	for _, item := range list {
+		if item == operand {
+			return true
+		}
+	}
+	return false
+}
+
 func compareOpStr(val interface{}, operand string, op ComparisonOperator) bool {
 	switch val.(type) {
 	case string:
@@ -101,6 +113,13 @@ func compareOpStr(val interface{}, operand string, op ComparisonOperator) bool {
 			return strVal == operand
 		case NotEqualToOp:
 			return strVal != operand
+
+		}
+	case []string:
+		switch op {
+		case InOp:
+			sliceVal := val.([]string)
+			return sliceContainsStr(sliceVal, operand)
 		}
 	default:
 		panic(fmt.Sprintf("ERROR: unsupported type for comparison: %T", val))
@@ -125,7 +144,7 @@ func (r *RuleEngine) compareNumber(field string, operand float64, op ComparisonO
 				panic(fmt.Sprintf("ERROR: field '%s' not found in struct", field))
 			}
 		}
-	}, fmt.Sprintf("%s %s %.2f", field, op, operand)) // Generalized formatting
+	}, fmt.Sprintf("%s %s %.2f", field, op, operand))
 }
 
 func (r *RuleEngine) compareString(field string, operand string, op ComparisonOperator) *SimpleCondition {
@@ -145,8 +164,34 @@ func (r *RuleEngine) compareString(field string, operand string, op ComparisonOp
 				panic(fmt.Sprintf("ERROR: field '%s' not found in struct", field))
 			}
 		}
-	}, fmt.Sprintf("%s %s %s", field, op, operand)) // Generalized formatting
+	}, fmt.Sprintf("%s %s %s", field, op, operand))
+}
 
+func (r *RuleEngine) checkNil(field string, invert bool, op ComparisonOperator) *SimpleCondition {
+	return r.CustomFn(func(data interface{}) bool {
+		switch typedData := data.(type) {
+		case map[string]interface{}:
+			if val, ok := typedData[field]; ok {
+				if invert {
+					return val != nil
+				}
+				return val == nil
+			} else {
+				panic(fmt.Sprintf("ERROR: field '%s' not found in map", field))
+			}
+		default:
+			fieldValue := reflect.ValueOf(data).FieldByName(field)
+			if fieldValue.IsValid() {
+				if invert {
+					return !fieldValue.IsNil()
+				}
+				return fieldValue.IsNil()
+			} else {
+				panic(fmt.Sprintf("ERROR: field '%s' not found in map", field))
+			}
+		}
+		return false
+	}, fmt.Sprintf("%s %s", field, op))
 }
 
 func (r *RuleEngine) GreaterThan(field string, value float64) *SimpleCondition {
@@ -179,4 +224,16 @@ func (r *RuleEngine) EqualToStr(field string, value string) *SimpleCondition {
 
 func (r *RuleEngine) NotEqualToStr(field string, value string) *SimpleCondition {
 	return r.compareString(field, value, NotEqualToOp)
+}
+
+func (r *RuleEngine) ListContainsStr(field string, value string) *SimpleCondition {
+	return r.compareString(field, value, InOp)
+}
+
+func (r *RuleEngine) IsNil(field string) *SimpleCondition {
+	return r.checkNil(field, false, IsNilOp)
+}
+
+func (r *RuleEngine) IsNotNil(field string) *SimpleCondition {
+	return r.checkNil(field, true, NotNilOp)
 }

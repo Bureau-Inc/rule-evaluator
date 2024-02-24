@@ -53,7 +53,7 @@ func (c *ORCondition) GetStaticDescription() string {
 	for _, nestedCond := range c.Conditions {
 		descriptions = append(descriptions, nestedCond.GetDescription())
 	}
-	return strings.Join(descriptions, "; ")
+	return combineDescriptions(descriptions, "OR")
 }
 
 func (c *ANDCondition) Evaluate(data interface{}) bool {
@@ -71,5 +71,9 @@ func (c *ANDCondition) GetDescription() string {
 	for _, nestedCond := range c.Conditions {
 		descriptions = append(descriptions, nestedCond.GetDescription())
 	}
-	return fmt.Sprintf("[AND: %s]", strings.Join(descriptions, "; "))
+	return combineDescriptions(descriptions, "AND")
+}
+
+func combineDescriptions(descriptions []string, conditionType string) string {
+	return fmt.Sprintf("[%s: %s]", conditionType, strings.Join(descriptions, "; "))
 }
